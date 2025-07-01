@@ -56,7 +56,7 @@ export async function POST(req) {
       {
         operation: "replace",
         modification: {
-          unicodePwd: utf16Password,
+          unicodePwd: [utf16Password],
         },
       },
     ]);
