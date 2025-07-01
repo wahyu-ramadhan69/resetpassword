@@ -1,73 +1,60 @@
-import { NextRequest, NextResponse } from "next/server";
-import { spawn } from "child_process";
+import { NextResponse } from "next/server";
 import { Client } from "ldapts";
-import path from "path";
 
-const DOMAIN_CONTROLLER = "ldap://127.0.0.1";
-const BASE_DN = "DC=BCAFWIFI,DC=CO,DC=ID";
+const LDAP_URL = "ldap://127.0.0.1";
+const ADMIN_DN = "CN=Tri Ade Putra,OU=staff,OU=group,DC=BCAFWIFI,DC=CO,DC=ID";
+const ADMIN_PASSWORD = process.env.AD_ADMIN_PASSWORD;
 
 export async function POST(req) {
   const { username, oldPassword, newPassword } = await req.json();
 
   if (!username || !oldPassword || !newPassword) {
-    return NextResponse.json({ error: "Missing input" }, { status: 400 });
+    return NextResponse.json(
+      { error: "❗ Input tidak lengkap." },
+      { status: 400 }
+    );
   }
 
-  const userDN = `CN=${username},OU=staff,OU=group,${BASE_DN}`;
+  const client = new Client({ url: LDAP_URL });
+  const userDN = `CN=${username},OU=staff,OU=group,DC=BCAFWIFI,DC=CO,DC=ID`;
 
   try {
-    // Step 1: Bind ke AD menggunakan username & old password
-    const client = new Client({ url: DOMAIN_CONTROLLER });
-    await client.bind(userDN, oldPassword);
-    await client.unbind();
-
-    console.log("password benar");
-
-    // Step 2: Eksekusi PowerShell untuk ganti password
-    const scriptPath = path.join(
-      process.cwd(),
-      "scripts",
-      "reset-password.ps1"
-    );
-
-    const ps = spawn("powershell.exe", [
-      "-ExecutionPolicy",
-      "Bypass",
-      "-File",
-      scriptPath,
-      "-Username",
-      username,
-      "-PlainPassword",
-      newPassword,
-    ]);
-
-    let stdout = "";
-    let stderr = "";
-
-    ps.stdout.on("data", (data) => (stdout += data.toString()));
-    ps.stderr.on("data", (data) => (stderr += data.toString()));
-
-    const exitCode =
-      (await new Promise()) < number > ((resolve) => ps.on("close", resolve));
-
-    if (exitCode !== 0) {
+    // Step 1: Bind pakai old password → cek valid tidak
+    try {
+      await client.bind(userDN, oldPassword);
+      await client.unbind();
+    } catch (authError) {
       return NextResponse.json(
-        { error: stderr || "Reset failed" },
-        { status: 500 }
+        { error: "⚠️ Password lama salah." },
+        { status: 401 }
       );
     }
 
-    return NextResponse.json({
-      message: "✅ Password berhasil diubah.",
-      output: stdout,
-    });
+    // Step 2: Bind sebagai admin
+    await client.bind(ADMIN_DN, ADMIN_PASSWORD);
+
+    // Format password: UTF-16LE dan dikelilingi tanda kutip
+    const quotedPassword = `"${newPassword}"`;
+    const utf16Password = Buffer.from(quotedPassword, "utf16le");
+
+    await client.modify(userDN, [
+      {
+        operation: "replace",
+        modification: {
+          unicodePwd: utf16Password,
+        },
+      },
+    ]);
+
+    await client.unbind();
+    return NextResponse.json({ message: "✅ Password berhasil diubah." });
   } catch (err) {
     return NextResponse.json(
       {
-        error: "❌ Password lama salah atau user tidak ditemukan.",
+        error: "❌ Gagal mengubah password.",
         detail: err.message,
       },
-      { status: 401 }
+      { status: 500 }
     );
   }
 }
