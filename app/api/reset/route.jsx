@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { Client } from "ldapts";
 
-const LDAP_URL = "ldap://127.0.0.1";
+const LDAP_URL = "ldap://192.168.29.12";
 const ADMIN_DN = "CN=Tri Ade Putra,OU=staff,OU=group,DC=BCAFWIFI,DC=CO,DC=ID";
 const ADMIN_PASSWORD = process.env.AD_ADMIN_PASSWORD;
 
