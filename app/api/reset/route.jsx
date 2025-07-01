@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
-import { Client } from "ldapts";
+import ActiveDirectory from "activedirectory2";
 
-const LDAP_URL = "ldap://192.168.29.12";
-const ADMIN_DN = "CN=Tri Ade Putra,OU=staff,OU=group,DC=BCAFWIFI,DC=CO,DC=ID";
-const ADMIN_PASSWORD = process.env.AD_ADMIN_PASSWORD;
-const BASE_DN = "DC=BCAFWIFI,DC=CO,DC=ID";
+const config = {
+  url: "ldap://192.168.29.12",
+  baseDN: "DC=BCAFWIFI,DC=CO,DC=ID",
+  username: "CN=Tri Ade Putra,OU=staff,OU=group,DC=BCAFWIFI,DC=CO,DC=ID",
+  password: process.env.AD_ADMIN_PASSWORD,
+};
+
+const ad = new ActiveDirectory(config);
 
 export async function POST(req) {
   const { username, oldPassword, newPassword } = await req.json();
@@ -16,56 +20,41 @@ export async function POST(req) {
     );
   }
 
-  const client = new Client({ url: LDAP_URL });
-
   try {
-    await client.bind(ADMIN_DN, ADMIN_PASSWORD);
-
-    const { searchEntries } = await client.search(BASE_DN, {
-      scope: "sub",
-      filter: `(sAMAccountName=${username})`,
-      attributes: ["distinguishedName"],
+    // 🧠 Step 1: Verifikasi password lama (bind pakai sAMAccountName)
+    const isValid = await new Promise((resolve, reject) => {
+      ad.authenticate(username, oldPassword, (err, auth) => {
+        if (err) return reject(err);
+        resolve(auth);
+      });
     });
 
-    if (searchEntries.length === 0) {
-      return NextResponse.json(
-        { error: "❌ User tidak ditemukan." },
-        { status: 404 }
-      );
-    }
-
-    const userDN = searchEntries[0].distinguishedName;
-
-    // Bind sebagai user dengan old password
-    try {
-      await client.bind(userDN, oldPassword);
-    } catch {
+    if (!isValid) {
       return NextResponse.json(
         { error: "⚠️ Password lama salah." },
         { status: 401 }
       );
     }
 
-    // Bind ulang sebagai admin
-    await client.bind(ADMIN_DN, ADMIN_PASSWORD);
+    // 🔁 Step 2: Ubah password
+    const changeResult = await new Promise((resolve, reject) => {
+      ad.findUser(username, (err, user) => {
+        if (err || !user) return reject("User tidak ditemukan.");
 
-    const quotedPassword = `"${newPassword}"`;
-    const utf16Password = Buffer.from(quotedPassword, "utf16le");
+        ad.setUserPassword(user.dn, newPassword, (err) => {
+          if (err) return reject(err);
+          resolve(true);
+        });
+      });
+    });
 
-    await client.modify(userDN, [
-      {
-        operation: "replace",
-        modification: {
-          unicodePwd: [utf16Password],
-        },
-      },
-    ]);
-
-    await client.unbind();
     return NextResponse.json({ message: "✅ Password berhasil diubah." });
   } catch (err) {
     return NextResponse.json(
-      { error: "❌ Gagal mengubah password.", detail: err.message },
+      {
+        error: "❌ Gagal mengubah password.",
+        detail: err.toString(),
+      },
       { status: 500 }
     );
   }
