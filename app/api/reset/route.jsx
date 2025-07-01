@@ -1,14 +1,13 @@
+// app/api/change-password/route.ts
 import { NextResponse } from "next/server";
-import ActiveDirectory from "activedirectory2";
+import { Client } from "ldap-client";
 
-const config = {
+const ldapConfig = {
   url: "ldap://192.168.29.12",
+  bindDN: "CN=Tri Ade Putra,OU=staff,OU=group,DC=BCAFWIFI,DC=CO,DC=ID",
+  bindCredentials: "1234Qwer",
   baseDN: "DC=BCAFWIFI,DC=CO,DC=ID",
-  username: "tap@bcafwifi.co.id",
-  password: "1234Qwer",
 };
-
-const ad = new ActiveDirectory(config);
 
 export async function POST(req) {
   const { username, oldPassword, newPassword } = await req.json();
@@ -20,42 +19,49 @@ export async function POST(req) {
     );
   }
 
+  const userPrincipalName = `${username}@BCAFWIFI.CO.ID`; // Format UPN
+  const userDN = `CN=${username},OU=staff,OU=group,DC=BCAFWIFI,DC=CO,DC=ID`; // Sesuaikan jika struktur OU beda
+
+  const adminClient = new Client({
+    url: ldapConfig.url,
+    bindDN: ldapConfig.bindDN,
+    bindCredentials: ldapConfig.bindCredentials,
+  });
+
+  const userClient = new Client({
+    url: ldapConfig.url,
+    bindDN: userPrincipalName,
+    bindCredentials: oldPassword,
+  });
+
   try {
-    // 🧠 Step 1: Verifikasi password lama (bind pakai sAMAccountName)
-    const isValid = await new Promise((resolve, reject) => {
-      ad.authenticate(username, oldPassword, (err, auth) => {
-        if (err) return reject(err);
-        resolve(auth);
-      });
-    });
+    // Step 1: Validasi password lama (bind sebagai user)
+    await userClient.bind();
 
-    if (!isValid) {
-      return NextResponse.json(
-        { error: "⚠️ Password lama salah." },
-        { status: 401 }
-      );
-    }
+    // Step 2: Bind sebagai admin untuk ubah password
+    await adminClient.bind();
 
-    // 🔁 Step 2: Ubah password
-    const changeResult = await new Promise((resolve, reject) => {
-      ad.findUser(username, (err, user) => {
-        if (err || !user) return reject("User tidak ditemukan.");
-
-        ad.setUserPassword(user.dn, newPassword, (err) => {
-          if (err) return reject(err);
-          resolve(true);
-        });
-      });
+    // Step 3: Ubah password
+    await adminClient.modifyPassword(userDN, {
+      oldPassword,
+      newPassword,
     });
 
     return NextResponse.json({ message: "✅ Password berhasil diubah." });
-  } catch (err) {
+  } catch (error) {
+    let friendly = "❌ Gagal mengubah password.";
+    if (error?.code === 49) {
+      friendly = "⚠️ Password lama salah.";
+    }
     return NextResponse.json(
       {
-        error: "❌ Gagal mengubah password.",
-        detail: err.toString(),
+        error: friendly,
+        detail: error?.message || String(error),
       },
       { status: 500 }
     );
+  } finally {
+    await adminClient.unbind();
+    await userClient.unbind();
   }
 }
