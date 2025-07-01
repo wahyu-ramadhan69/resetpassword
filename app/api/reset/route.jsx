@@ -5,7 +5,7 @@ const config = {
   url: "ldap://192.168.29.12",
   baseDN: "DC=BCAFWIFI,DC=CO,DC=ID",
   username: "CN=Tri Ade Putra,OU=staff,OU=group,DC=BCAFWIFI,DC=CO,DC=ID",
-  password: process.env.AD_ADMIN_PASSWORD,
+  password: "1234Qwer",
 };
 
 const ad = new ActiveDirectory(config);
