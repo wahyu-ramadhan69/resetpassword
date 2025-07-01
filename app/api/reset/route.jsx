@@ -4,7 +4,7 @@ import ActiveDirectory from "activedirectory2";
 const config = {
   url: "ldap://192.168.29.12",
   baseDN: "DC=BCAFWIFI,DC=CO,DC=ID",
-  username: "CN=Tri Ade Putra,OU=staff,OU=group,DC=BCAFWIFI,DC=CO,DC=ID",
+  username: "tap@bcafwifi.co.id",
   password: "1234Qwer",
 };
 
